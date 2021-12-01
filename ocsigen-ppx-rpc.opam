@@ -1,0 +1,17 @@
+opam-version: "2.0"
+authors: "dev@ocsigen.org"
+maintainer: "dev@ocsigen.org"
+license: "LGPL-2.1-only with OCaml-LGPL-linking-exception"
+homepage: "https://github.com/ocsigen/ocsigen-ppx-rpc/"
+bug-reports: "https://github.com/ocsigen/ocsigen-ppx-rpc/issues"
+dev-repo: "git+https://github.com/ocsigen/ocsigen-ppx-rpc.git"
+
+version: "1.0"
+
+build: [
+  [ "dune" "subst" ] {pinned}
+  [ "dune" "build" "-p" name "-j" jobs ]
+]
+depends: [
+  "ppxlib" {>= "0.15.0"}
+]
