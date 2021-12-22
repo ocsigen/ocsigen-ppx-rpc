@@ -123,8 +123,8 @@ let apply args expr = Exp.apply expr args
 let server_function ~loc ~kind ~fun_var expr' =
   let expr =
     match kind with
-    | `Connected -> [%expr fun (myid : Bs_data.userid) -> [%e expr']]
-    | `Any -> [%expr fun (myid_o : Bs_data.userid option) -> [%e expr']]
+    | `Connected -> [%expr fun (myid : Os_types.User.id) -> [%e expr']]
+    | `Any -> [%expr fun (myid_o : Os_types.User.id option) -> [%e expr']]
     | `None -> expr'
   in
   [%stri let%server [%p fun_var] = [%e expr]]
