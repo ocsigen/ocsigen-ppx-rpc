@@ -194,8 +194,15 @@
     end
 
   $ run_ppx newtype.ml
-  File "newtype.ml", line 1, characters 0-33:
-  1 | let%rpc f (type a) (x : int) = ()
-      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  Error: The function must have at least one parameter
-  [1]
+  include
+    struct
+      [%%server let f (type a) (x : int) = ()]
+      [%%server let _ = ()]
+      [%%client
+        let f x =
+          (~%
+             (Eliom_client.server_function ~name:"newtype.f" ([%json : int])
+                (Os_session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
+                                                                   "-16"]]
+      [%%server let f x = f x[@@ocaml.warning "-16-32"]]
+    end

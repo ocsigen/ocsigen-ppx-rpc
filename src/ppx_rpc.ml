@@ -68,6 +68,7 @@ let expr_type e =
 let process_param label def pat =
   match pat.ppat_desc with
   | Ppat_constraint ({ppat_desc = Ppat_var {txt = name}}, ty) ->
+      let name = match label with Labelled n | Optional n -> n | Nolabel -> name in
       let ty =
         match label, def with
         | Optional _, Some _ ->
@@ -133,25 +134,36 @@ let rec collect_params l expr =
 
 let rec collect_params l expr =
   match expr.pexp_desc with
-  | Pexp_function (params, _, Pfunction_body expr') ->
+  | Pexp_function (params, constraint_, Pfunction_body expr') ->
       let rec loop l params =
         match params with
-        | [] -> collect_params l expr'
+        | [] ->
+            let (l, has_unit), typ = collect_params l expr' in
+            let typ =
+              if typ <> None then typ
+              else match constraint_ with
+                | Some (Pconstraint {ptyp_desc = Ptyp_constr ({txt = Ldot (Lident "Lwt", "t"); _}, [ty']); _}) -> Some ty'
+                | _ -> None
+            in
+            (l, has_unit), typ
         | param :: rest -> (
           match param.pparam_desc with
           | Pparam_val (label, def, pat) -> (
             match pat.ppat_desc with
             | Ppat_construct ({txt = Lident "()"; _}, None)
               when label = Nolabel && def = None ->
-                let typ = if rest = [] then expr_type expr' else None in
-                (List.rev l, true), typ
+                let (l, _), typ = collect_params l expr' in
+                (l, true), typ
             | _ -> (
               match process_param label def pat with
               | `Param (label, name, ty) -> loop ((label, name, ty) :: l) rest))
-          | Pparam_newtype _ -> (List.rev l, false), None)
+          | Pparam_newtype _ -> loop l rest)
       in
       loop l params
-  | Pexp_constraint (e, _) -> collect_params l e
+  | Pexp_constraint (e, _) ->
+      let (l, has_unit), typ = collect_params l e in
+      let typ = if typ = None then expr_type expr else typ in
+      (l, has_unit), typ
   | _ -> (List.rev l, false), expr_type expr
 
 [%%endif]
@@ -296,24 +308,20 @@ let rec check_myid expr =
     | { pparam_desc =
           Pparam_val (Nolabel, None, {ppat_desc = Ppat_var {txt = "myid"}}) }
       :: rest ->
-        if rest = []
-        then `Connected, e
-        else
-          ( `Connected
-          , { expr with
-              pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)
-            } )
+        let expr' = match rest with
+          | [] -> e
+          | _ -> {expr with pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)}
+        in
+        `Connected, expr'
     | { pparam_desc =
           Pparam_val (Nolabel, None, {ppat_desc = Ppat_var {txt = "myid_o"}})
       }
       :: rest ->
-        if rest = []
-        then `Any, e
-        else
-          ( `Any
-          , { expr with
-              pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)
-            } )
+        let expr' = match rest with
+          | [] -> e
+          | _ -> {expr with pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)}
+        in
+        `Any, expr'
     | _ -> `None, expr)
   | {pexp_desc = Pexp_constraint (e, t)} ->
       let kind, new_e = check_myid e in
@@ -324,13 +332,14 @@ let rec check_myid expr =
 
 [%%endif]
 
-let extension_impl ~legacy ~loc ~path:_ fun_name expr =
+let extension_impl ~legacy ~loc ~path:_ ~return_typ_hint fun_name expr =
   let raw = !raw && not !cache in
   let cache = (not legacy) && !cache in
   let fun_var = pvar ~loc:fun_name.loc fun_name.txt in
   let fun_name = fun_name.txt in
   let kind, expr' = if raw then `None, expr else check_myid expr in
   let params, return_typ = collect_params [] expr' in
+  let return_typ = match return_typ with Some _ -> return_typ | None -> return_typ_hint in
   (match params with
   | [], false -> print_error ~loc No_parameter
   | l, _ ->
@@ -352,10 +361,10 @@ let extension_impl ~legacy ~loc ~path:_ fun_name expr =
           ; client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params
           ; server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params ]))
 
-let extension ~legacy ~loc ~path fun_name expr =
-  extension_impl ~legacy ~loc ~path fun_name expr
-
 [%%if ocaml_version < (5, 3, 0)]
+
+let extension ~legacy ~loc ~path fun_name expr =
+  extension_impl ~legacy ~loc ~path ~return_typ_hint:None fun_name expr
 
 let vb_pattern =
   let open Ppxlib.Ast_pattern in
@@ -363,9 +372,27 @@ let vb_pattern =
 
 [%%else]
 
+let rec return_type_of_arrow ty =
+  match ty.ptyp_desc with
+  | Ptyp_arrow (_, _, ret) -> return_type_of_arrow ret
+  | _ -> ty
+
+let lwt_return_type constraint_opt =
+  match constraint_opt with
+  | Some (Pvc_constraint {typ; _}) -> (
+      let ret = return_type_of_arrow typ in
+      match ret.ptyp_desc with
+      | Ptyp_constr ({txt = Ldot (Lident "Lwt", "t"); _}, [ty']) -> Some ty'
+      | _ -> None)
+  | _ -> None
+
+let extension ~legacy ~loc ~path fun_name expr constraint_opt =
+  extension_impl ~legacy ~loc ~path
+    ~return_typ_hint:(lwt_return_type constraint_opt) fun_name expr
+
 let vb_pattern =
   let open Ppxlib.Ast_pattern in
-  value_binding ~pat:(ppat_var __') ~expr:__ ~constraint_:drop
+  value_binding ~pat:(ppat_var __') ~expr:__ ~constraint_:__
 
 [%%endif]
 
