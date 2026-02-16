@@ -1,0 +1,12 @@
+(executable
+ (name run_ppx)
+ (modules run_ppx)
+ (libraries ppxlib ppx_rpc))
+
+(env
+ (_
+  (binaries
+   (./run_ppx.exe as run_ppx))))
+
+(cram
+ (deps %{bin:run_ppx}))
