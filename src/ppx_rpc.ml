@@ -62,59 +62,41 @@ let typ_tuple l =
   | [(_, _, ty)] -> ty
   | _ -> Typ.tuple (List.map (fun (_, _, ty) -> ty) l)
 
-let expr_type e =
-  match e with [%expr ([%e? _] : [%t? ty] Lwt.t)] -> Some ty | _ -> None
+(** Extract T in the type expr [T Lwt.t], return None otherwise. *)
+let extract_lwt_t = function [%type: [%t? ty] Lwt.t] -> Some ty | _ -> None
+
+(** Extract T in the expression [(.. : T Lwt.t)], return None otherwise. *)
+let extract_lwt_t_expr = function
+  | [%expr ([%e? _] : [%t? t])] -> extract_lwt_t t
+  | _ -> None
+
+(** Name of an argument. Raise an error if there is no label and [pattern] is
+    not [Ppat_var]. *)
+let arg_name label var_pattern =
+  match label, var_pattern with
+  | (Labelled n | Optional n), _ -> n
+  | Nolabel, {ppat_desc = Ppat_var var; _} -> var.txt
+  | Nolabel, _ -> print_error ~loc:var_pattern.ppat_loc Missing_parameter_name
 
 let process_param label def pat =
-  match pat.ppat_desc with
-  | Ppat_constraint ({ppat_desc = Ppat_var {txt = name}}, ty) ->
-      let name = match label with Labelled n | Optional n -> n | Nolabel -> name in
-      let ty =
-        match label, def with
-        | Optional _, Some _ ->
-            let loc = ty.ptyp_loc in
-            [%type: [%t ty] option]
-        | _ -> ty
-      in
-      `Param (label, name, ty)
-  | Ppat_constraint (_, ty) -> (
-    match label with
-    | Labelled name | Optional name ->
-        let ty =
-          match label, def with
-          | Optional _, Some _ ->
-              let loc = ty.ptyp_loc in
-              [%type: [%t ty] option]
-          | _ -> ty
-        in
-        `Param (label, name, ty)
-    | Nolabel -> print_error ~loc:pat.ppat_loc Missing_parameter_name)
-  | Ppat_var {txt = name} -> (
-    match def with
-    | Some {pexp_desc = Pexp_constraint (_, ty)} ->
-        let ty =
-          match label with
-          | Optional _ ->
-              let loc = ty.ptyp_loc in
-              [%type: [%t ty] option]
-          | _ -> ty
-        in
-        `Param (label, name, ty)
-    | _ -> print_error ~loc:pat.ppat_loc Missing_parameter_type)
+  let param var_pat ty =
+    let name = arg_name label var_pat in
+    let ty =
+      match label, def with
+      | Optional _, Some _ ->
+          let loc = ty.ptyp_loc in
+          [%type: [%t ty] option]
+      | _ -> ty
+    in
+    `Param (label, name, ty)
+  in
+  match pat with
+  (* [(var_pat : ty)] or [~(label : ty)]. *)
+  | [%pat? ([%p? var_pat] : [%t? ty])] -> param var_pat ty
   | _ -> (
     match def with
-    | Some {pexp_desc = Pexp_constraint (_, ty)} -> (
-      match label with
-      | Labelled name | Optional name ->
-          let ty =
-            match label with
-            | Optional _ ->
-                let loc = ty.ptyp_loc in
-                [%type: [%t ty] option]
-            | _ -> ty
-          in
-          `Param (label, name, ty)
-      | Nolabel -> print_error ~loc:pat.ppat_loc Missing_parameter_name)
+    (* [?(label = (def : ty))]. *)
+    | Some [%expr ([%e? _] : [%t? ty])] -> param pat ty
     | _ -> print_error ~loc:pat.ppat_loc Missing_parameter_type)
 
 [%%if ocaml_version < (5, 3, 0)]
@@ -123,12 +105,12 @@ let rec collect_params l expr =
   match expr.pexp_desc with
   | Pexp_fun (label, def, pat, expr') -> (
     match pat with
-    | [%pat? ()] -> (List.rev l, true), expr_type expr'
+    | [%pat? ()] -> (List.rev l, true), extract_lwt_t_expr expr'
     | _ -> (
       match process_param label def pat with
       | `Param (label, name, ty) ->
           collect_params ((label, name, ty) :: l) expr'))
-  | _ -> (List.rev l, false), expr_type expr
+  | _ -> (List.rev l, false), extract_lwt_t_expr expr
 
 let make_fun loc (params, has_unit) expr =
   List.fold_right
@@ -146,10 +128,10 @@ let rec collect_params l expr =
         | [] ->
             let (l, has_unit), typ = collect_params l expr' in
             let typ =
-              if typ <> None then typ
-              else match constraint_ with
-                | Some (Pconstraint {ptyp_desc = Ptyp_constr ({txt = Ldot (Lident "Lwt", "t"); _}, [ty']); _}) -> Some ty'
-                | _ -> None
+              match typ, constraint_ with
+              | Some _, _ -> typ
+              | None, Some (Pconstraint cstr) -> extract_lwt_t cstr
+              | None, _ -> None
             in
             (l, has_unit), typ
         | param :: rest -> (
@@ -168,9 +150,9 @@ let rec collect_params l expr =
       loop l params
   | Pexp_constraint (e, _) ->
       let (l, has_unit), typ = collect_params l e in
-      let typ = if typ = None then expr_type expr else typ in
+      let typ = if typ = None then extract_lwt_t_expr expr else typ in
       (l, has_unit), typ
-  | _ -> (List.rev l, false), expr_type expr
+  | _ -> (List.rev l, false), extract_lwt_t_expr expr
 
 let mk_function_param ?(loc = Location.none) ?(label = Nolabel) ?defexpr pat =
   {pparam_loc = loc; pparam_desc = Pparam_val (label, defexpr, pat)}
@@ -312,31 +294,24 @@ let rec check_myid expr =
 
 [%%else]
 
+let is_special_argument = function
+  | [%pat? myid] -> Some `Connected
+  | [%pat? myid_o] -> Some `Any
+  | _ -> None
+
 let rec check_myid expr =
   match expr with
-  | [%expr fun myid -> [%e? expr']] -> `Connected, expr'
-  | [%expr fun myid_o -> [%e? expr']] -> `Any, expr'
-  | {pexp_desc = Pexp_function (params, constraint_, Pfunction_body e)} -> (
-    match params with
-    | { pparam_desc =
-          Pparam_val (Nolabel, None, {ppat_desc = Ppat_var {txt = "myid"}}) }
-      :: rest ->
-        let expr' = match rest with
-          | [] -> e
-          | _ -> {expr with pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)}
-        in
-        `Connected, expr'
-    | { pparam_desc =
-          Pparam_val (Nolabel, None, {ppat_desc = Ppat_var {txt = "myid_o"}})
-      }
-      :: rest ->
-        let expr' = match rest with
-          | [] -> e
-          | _ -> {expr with pexp_desc = Pexp_function (rest, constraint_, Pfunction_body e)}
-        in
-        `Any, expr'
-    | _ -> `None, expr)
-  | {pexp_desc = Pexp_constraint (e, t)} ->
+  | { pexp_desc =
+        Pexp_function
+          ( {pparam_desc = Pparam_val (Nolabel, None, pat); _} :: rest
+          , constraint_
+          , (Pfunction_body body_expr as body) ) } -> (
+    match is_special_argument pat, rest with
+    | Some sp, [] -> sp, body_expr
+    | Some sp, rest ->
+        sp, {expr with pexp_desc = Pexp_function (rest, constraint_, body)}
+    | None, _ -> `None, expr)
+  | [%expr ([%e? e] : [%t? t])] ->
       let kind, new_e = check_myid e in
       if kind <> `None
       then kind, {expr with pexp_desc = Pexp_constraint (new_e, t)}
@@ -392,16 +367,13 @@ let rec return_type_of_arrow ty =
 
 let lwt_return_type constraint_opt =
   match constraint_opt with
-  | Some (Pvc_constraint {typ; _}) -> (
-      let ret = return_type_of_arrow typ in
-      match ret.ptyp_desc with
-      | Ptyp_constr ({txt = Ldot (Lident "Lwt", "t"); _}, [ty']) -> Some ty'
-      | _ -> None)
+  | Some (Pvc_constraint {typ; _}) -> extract_lwt_t (return_type_of_arrow typ)
   | _ -> None
 
 let extension ~legacy ~loc ~path fun_name expr constraint_opt =
   extension_impl ~legacy ~loc ~path
-    ~return_typ_hint:(lwt_return_type constraint_opt) fun_name expr
+    ~return_typ_hint:(lwt_return_type constraint_opt)
+    fun_name expr
 
 let vb_pattern =
   let open Ppxlib.Ast_pattern in
