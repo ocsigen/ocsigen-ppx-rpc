@@ -16,15 +16,13 @@
       [%%server let f (x : int) (y : int) (z : int) = ()]
       [%%server let _ = ()]
       [%%client
-        let f x =
-          fun y ->
-            fun z ->
-              (~%
-                 (Eliom_client.server_function ~name:"impl.f"
-                    ([%json : (int * int * int)])
-                    (Os_session.connected_wrapper (fun (x, y, z) -> f x y z))))
-                (x, y, z)[@@ocaml.warning "-16"]]
-      [%%server let f x = fun y -> fun z -> f x y z[@@ocaml.warning "-16-32"]]
+        let f x y z =
+          (~%
+             (Eliom_client.server_function ~name:"impl.f"
+                ([%json : (int * int * int)])
+                (Os_session.connected_wrapper (fun (x, y, z) -> f x y z))))
+            (x, y, z)[@@ocaml.warning "-16"]]
+      [%%server let f x y z = f x y z[@@ocaml.warning "-16-32"]]
     end
   include
     struct
@@ -172,13 +170,12 @@
       [%%server let f (x : int) () = ()]
       [%%server let _ = ()]
       [%%client
-        let f x =
-          fun () ->
-            (~%
-               (Eliom_client.server_function ~name:"unit.f" ([%json : int])
-                  (Os_session.connected_wrapper (fun x -> f x ())))) x[@@ocaml.warning
+        let f x () =
+          (~%
+             (Eliom_client.server_function ~name:"unit.f" ([%json : int])
+                (Os_session.connected_wrapper (fun x -> f x ())))) x[@@ocaml.warning
                                                                       "-16"]]
-      [%%server let f x = fun () -> f x ()[@@ocaml.warning "-16-32"]]
+      [%%server let f x () = f x ()[@@ocaml.warning "-16-32"]]
     end
   include
     struct

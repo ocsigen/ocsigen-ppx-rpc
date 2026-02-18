@@ -130,6 +130,12 @@ let rec collect_params l expr =
           collect_params ((label, name, ty) :: l) expr'))
   | _ -> (List.rev l, false), expr_type expr
 
+let make_fun loc (params, has_unit) expr =
+  List.fold_right
+    (fun (label, x, _) expr -> Exp.fun_ label None (pvar x) expr)
+    params
+    (if has_unit then [%expr fun () -> [%e expr]] else expr)
+
 [%%else]
 
 let rec collect_params l expr =
@@ -166,13 +172,20 @@ let rec collect_params l expr =
       (l, has_unit), typ
   | _ -> (List.rev l, false), expr_type expr
 
-[%%endif]
+let mk_function_param ?(loc = Location.none) ?(label = Nolabel) ?defexpr pat =
+  {pparam_loc = loc; pparam_desc = Pparam_val (label, defexpr, pat)}
 
-let parametrize loc (params, has_unit) expr =
-  List.fold_right
-    (fun (label, x, _) expr -> Exp.fun_ label None (pvar x) expr)
-    params
-    (if has_unit then [%expr fun () -> [%e expr]] else expr)
+let make_fun loc (params, has_unit_arg) body =
+  let params =
+    List.fold_right
+      (fun (label, ident, _) acc ->
+         mk_function_param ~label (pvar ident) :: acc)
+      params
+      (if has_unit_arg then [mk_function_param [%pat? ()]] else [])
+  in
+  Exp.mk ~loc (Pexp_function (params, None, Pfunction_body body))
+
+[%%endif]
 
 let build_params loc (params, has_unit) =
   List.map (fun (label, x, _) -> label, ident x) params
@@ -213,7 +226,7 @@ let server_cacher ~loc ~kind ~cache ~fun_name ~fun_var ~params =
       let expr =
         fun_name |> ident
         |> apply (id_param @ build_params loc params)
-        |> cache |> parametrize loc params |> parametrize_id
+        |> cache |> make_fun loc params |> parametrize_id
       in
       [%stri let%server [%p fun_var] = [%e expr] [@@ocaml.warning "-16"]]
 
@@ -233,7 +246,7 @@ let server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
     let expr =
       fun_name |> ident
       |> apply (id_param @ build_params loc params)
-      |> uncache |> parametrize loc params
+      |> uncache |> make_fun loc params
     in
     [%stri let%server [%p fun_var] = [%e expr] [@@ocaml.warning "-16-32"]]
 
@@ -278,7 +291,7 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
         [%e expr_tuple (fst params)]]
   in
   [%stri
-  let%client [%p fun_var] = [%e parametrize loc params expr]
+  let%client [%p fun_var] = [%e make_fun loc params expr]
   [@@ocaml.warning "-16"]]
 
 let raw = ref false
