@@ -8,5 +8,9 @@
   (binaries
    (./run_ppx.exe as run_ppx))))
 
+; Cram tests are only enabled starting OCaml 5.3 because the PPX output changes
+; significantly
 (cram
+ (enabled_if
+  (>= %{ocaml_version} 5.3))
  (deps %{bin:run_ppx}))
