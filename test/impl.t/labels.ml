@@ -1,0 +1,5 @@
+let%rpc nolabel (x : int) = ()
+let%rpc labelled ~(x : int) = ()
+let%rpc optional ?(x : int) = ()
+let%rpc optional_with_def ?(x : int = 1) = ()
+let%rpc optional_with_def2 ?(x = (1 : int)) = ()
