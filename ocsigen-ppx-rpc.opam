@@ -9,6 +9,7 @@ synopsis: "This PPX adds a syntax for RPCs for Eliom and Ocsigen Start"
 
 version: "1.1"
 
+available: os != "win32"
 build: [
   [ "dune" "subst" ] {dev}
   [ "dune" "build" "-p" name "-j" jobs ]
