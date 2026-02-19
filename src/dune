@@ -1,8 +1,12 @@
 (library
  (name ppx_rpc)
  (public_name ocsigen-ppx-rpc)
- (preprocess (pps ppxlib.metaquot))
+ (preprocess
+  (pps ppxlib.metaquot ppx_optcomp))
  (libraries ppxlib)
  (kind ppx_deriver))
 
-(env (_ (flags (:standard -w -9))))
+(env
+ (_
+  (flags
+   (:standard -w -9))))

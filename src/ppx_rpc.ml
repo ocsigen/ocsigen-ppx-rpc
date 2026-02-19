@@ -62,57 +62,112 @@ let typ_tuple l =
   | [(_, _, ty)] -> ty
   | _ -> Typ.tuple (List.map (fun (_, _, ty) -> ty) l)
 
-let expr_type e =
-  match e with [%expr ([%e? _] : [%t? ty] Lwt.t)] -> Some ty | _ -> None
+(** Extract T in the type expr [T Lwt.t], return None otherwise. *)
+let extract_lwt_t = function [%type: [%t? ty] Lwt.t] -> Some ty | _ -> None
+
+(** Extract T in the expression [(.. : T Lwt.t)], return None otherwise. *)
+let extract_lwt_t_expr = function
+  | [%expr ([%e? _] : [%t? t])] -> extract_lwt_t t
+  | _ -> None
+
+(** Name of an argument. Raise an error if there is no label and [pattern] is
+    not [Ppat_var]. *)
+let arg_name label var_pattern =
+  match label, var_pattern with
+  | (Labelled n | Optional n), _ -> n
+  | Nolabel, {ppat_desc = Ppat_var var; _} -> var.txt
+  | Nolabel, _ -> print_error ~loc:var_pattern.ppat_loc Missing_parameter_name
+
+let process_param label def pat =
+  let param var_pat ty =
+    let name = arg_name label var_pat in
+    let ty =
+      match label, def with
+      | Optional _, Some _ ->
+          let loc = ty.ptyp_loc in
+          [%type: [%t ty] option]
+      | _ -> ty
+    in
+    `Param (label, name, ty)
+  in
+  match pat with
+  (* [(var_pat : ty)] or [~(label : ty)]. *)
+  | [%pat? ([%p? var_pat] : [%t? ty])] -> param var_pat ty
+  | _ -> (
+    match def with
+    (* [?(label = (def : ty))]. *)
+    | Some [%expr ([%e? _] : [%t? ty])] -> param pat ty
+    | _ -> print_error ~loc:pat.ppat_loc Missing_parameter_type)
+
+[%%if ocaml_version < (5, 3, 0)]
 
 let rec collect_params l expr =
-  match expr with
-  | { pexp_desc =
-        Pexp_fun
-          ( ((Labelled name | Optional name) as label)
-          , def
-          , {ppat_desc = Ppat_constraint (_, ty)}
-          , expr' ) }
-  | { pexp_desc =
-        Pexp_fun
-          ( (Nolabel as label)
-          , def
-          , { ppat_desc =
-                Ppat_constraint ({ppat_desc = Ppat_var {txt = name}}, ty) }
-          , expr' ) }
-  | { pexp_desc =
-        Pexp_fun
-          ( ((Labelled name | Optional name) as label)
-          , (Some {pexp_desc = Pexp_constraint (_, ty)} as def)
-          , _
-          , expr' ) }
-  | { pexp_desc =
-        Pexp_fun
-          ( (Nolabel as label)
-          , (Some {pexp_desc = Pexp_constraint (_, ty)} as def)
-          , {ppat_desc = Ppat_var {txt = name}}
-          , expr' ) } ->
-      let ty =
-        match label, def with
-        | Optional _, Some _ ->
-            let loc = ty.ptyp_loc in
-            [%type: [%t ty] option]
-        | _ -> ty
-      in
-      collect_params ((label, name, ty) :: l) expr'
-  | [%expr fun () -> [%e? expr']] -> (List.rev l, true), expr_type expr'
-  | {pexp_desc = Pexp_fun (_, _, ({ppat_desc = Ppat_constraint (_, _)} as p), _)}
-    ->
-      print_error ~loc:p.ppat_loc Missing_parameter_name
-  | {pexp_desc = Pexp_fun (_, _, p, _)} ->
-      print_error ~loc:p.ppat_loc Missing_parameter_type
-  | _ -> (List.rev l, false), expr_type expr
+  match expr.pexp_desc with
+  | Pexp_fun (label, def, pat, expr') -> (
+    match pat with
+    | [%pat? ()] -> (List.rev l, true), extract_lwt_t_expr expr'
+    | _ -> (
+      match process_param label def pat with
+      | `Param (label, name, ty) ->
+          collect_params ((label, name, ty) :: l) expr'))
+  | _ -> (List.rev l, false), extract_lwt_t_expr expr
 
-let parametrize loc (params, has_unit) expr =
+let make_fun loc (params, has_unit) expr =
   List.fold_right
     (fun (label, x, _) expr -> Exp.fun_ label None (pvar x) expr)
     params
     (if has_unit then [%expr fun () -> [%e expr]] else expr)
+
+[%%else]
+
+let rec collect_params l expr =
+  match expr.pexp_desc with
+  | Pexp_function (params, constraint_, Pfunction_body expr') ->
+      let rec loop l params =
+        match params with
+        | [] ->
+            let (l, has_unit), typ = collect_params l expr' in
+            let typ =
+              match typ, constraint_ with
+              | Some _, _ -> typ
+              | None, Some (Pconstraint cstr) -> extract_lwt_t cstr
+              | None, _ -> None
+            in
+            (l, has_unit), typ
+        | param :: rest -> (
+          match param.pparam_desc with
+          | Pparam_val (label, def, pat) -> (
+            match pat.ppat_desc with
+            | Ppat_construct ({txt = Lident "()"; _}, None)
+              when label = Nolabel && def = None ->
+                let (l, _), typ = collect_params l expr' in
+                (l, true), typ
+            | _ -> (
+              match process_param label def pat with
+              | `Param (label, name, ty) -> loop ((label, name, ty) :: l) rest))
+          | Pparam_newtype _ -> loop l rest)
+      in
+      loop l params
+  | Pexp_constraint (e, _) ->
+      let (l, has_unit), typ = collect_params l e in
+      let typ = if typ = None then extract_lwt_t_expr expr else typ in
+      (l, has_unit), typ
+  | _ -> (List.rev l, false), extract_lwt_t_expr expr
+
+let mk_function_param ?(loc = Location.none) ?(label = Nolabel) ?defexpr pat =
+  {pparam_loc = loc; pparam_desc = Pparam_val (label, defexpr, pat)}
+
+let make_fun loc (params, has_unit_arg) body =
+  let params =
+    List.fold_right
+      (fun (label, ident, _) acc ->
+         mk_function_param ~label (pvar ident) :: acc)
+      params
+      (if has_unit_arg then [mk_function_param [%pat? ()]] else [])
+  in
+  Exp.mk ~loc (Pexp_function (params, None, Pfunction_body body))
+
+[%%endif]
 
 let build_params loc (params, has_unit) =
   List.map (fun (label, x, _) -> label, ident x) params
@@ -153,7 +208,7 @@ let server_cacher ~loc ~kind ~cache ~fun_name ~fun_var ~params =
       let expr =
         fun_name |> ident
         |> apply (id_param @ build_params loc params)
-        |> cache |> parametrize loc params |> parametrize_id
+        |> cache |> make_fun loc params |> parametrize_id
       in
       [%stri let%server [%p fun_var] = [%e expr] [@@ocaml.warning "-16"]]
 
@@ -173,7 +228,7 @@ let server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
     let expr =
       fun_name |> ident
       |> apply (id_param @ build_params loc params)
-      |> uncache |> parametrize loc params
+      |> uncache |> make_fun loc params
     in
     [%stri let%server [%p fun_var] = [%e expr] [@@ocaml.warning "-16-32"]]
 
@@ -218,37 +273,71 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
         [%e expr_tuple (fst params)]]
   in
   [%stri
-    let%client [%p fun_var] = [%e parametrize loc params expr]
-      [@@ocaml.warning "-16"]]
+  let%client [%p fun_var] = [%e make_fun loc params expr]
+  [@@ocaml.warning "-16"]]
 
 let raw = ref false
 let cache = ref false
 
-let extension ~legacy ~loc ~path:_ fun_name expr =
+[%%if ocaml_version < (5, 3, 0)]
+
+let rec check_myid expr =
+  match expr with
+  | [%expr fun myid -> [%e? expr']] -> `Connected, expr'
+  | [%expr fun myid_o -> [%e? expr']] -> `Any, expr'
+  | {pexp_desc = Pexp_constraint (e, t)} ->
+      let kind, new_e = check_myid e in
+      if kind <> `None
+      then kind, {expr with pexp_desc = Pexp_constraint (new_e, t)}
+      else `None, expr
+  | _ -> `None, expr
+
+[%%else]
+
+let is_special_argument = function
+  | [%pat? myid] -> Some `Connected
+  | [%pat? myid_o] -> Some `Any
+  | _ -> None
+
+let rec check_myid expr =
+  match expr with
+  | { pexp_desc =
+        Pexp_function
+          ( {pparam_desc = Pparam_val (Nolabel, None, pat); _} :: rest
+          , constraint_
+          , (Pfunction_body body_expr as body) ) } -> (
+    match is_special_argument pat, rest with
+    | Some sp, [] -> sp, body_expr
+    | Some sp, rest ->
+        sp, {expr with pexp_desc = Pexp_function (rest, constraint_, body)}
+    | None, _ -> `None, expr)
+  | [%expr ([%e? e] : [%t? t])] ->
+      let kind, new_e = check_myid e in
+      if kind <> `None
+      then kind, {expr with pexp_desc = Pexp_constraint (new_e, t)}
+      else `None, expr
+  | _ -> `None, expr
+
+[%%endif]
+
+let extension_impl ~legacy ~loc ~path:_ ~return_typ_hint fun_name expr =
   let raw = !raw && not !cache in
   let cache = (not legacy) && !cache in
   let fun_var = pvar ~loc:fun_name.loc fun_name.txt in
   let fun_name = fun_name.txt in
-  let kind, expr' =
-    if raw
-    then `None, expr
-    else
-      match expr with
-      | [%expr fun myid -> [%e? expr']] -> `Connected, expr'
-      | [%expr fun myid_o -> [%e? expr']] -> `Any, expr'
-      | _ -> `None, expr
-  in
+  let kind, expr' = if raw then `None, expr else check_myid expr in
   let params, return_typ = collect_params [] expr' in
+  let return_typ = match return_typ with Some _ -> return_typ | None -> return_typ_hint in
   (match params with
   | [], false -> print_error ~loc No_parameter
   | l, _ ->
       ignore
         (List.fold_left
            (fun acc (_, nm, _) ->
-             if List.mem nm acc then print_error ~loc (Duplicated_parameter nm);
-             if nm = "myid" || nm = "myid_o"
-             then print_error ~loc (Reserved_parameter nm);
-             nm :: acc)
+              if List.mem nm acc then print_error ~loc (Duplicated_parameter nm);
+              if nm = "myid" || nm = "myid_o"
+              then print_error ~loc (Reserved_parameter nm);
+              nm :: acc)
            [] l));
   if cache && return_typ = None then print_error ~loc No_return_type;
   let cache = if cache then return_typ else None in
@@ -260,21 +349,52 @@ let extension ~legacy ~loc ~path:_ fun_name expr =
           ; client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params
           ; server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params ]))
 
+[%%if ocaml_version < (5, 3, 0)]
+
+let extension ~legacy ~loc ~path fun_name expr =
+  extension_impl ~legacy ~loc ~path ~return_typ_hint:None fun_name expr
+
+let vb_pattern =
+  let open Ppxlib.Ast_pattern in
+  value_binding ~pat:(ppat_var __') ~expr:__
+
+[%%else]
+
+let rec return_type_of_arrow ty =
+  match ty.ptyp_desc with
+  | Ptyp_arrow (_, _, ret) -> return_type_of_arrow ret
+  | _ -> ty
+
+let lwt_return_type constraint_opt =
+  match constraint_opt with
+  | Some (Pvc_constraint {typ; _}) -> extract_lwt_t (return_type_of_arrow typ)
+  | _ -> None
+
+let extension ~legacy ~loc ~path fun_name expr constraint_opt =
+  extension_impl ~legacy ~loc ~path
+    ~return_typ_hint:(lwt_return_type constraint_opt)
+    fun_name expr
+
+let vb_pattern =
+  let open Ppxlib.Ast_pattern in
+  value_binding ~pat:(ppat_var __') ~expr:__ ~constraint_:__
+
+[%%endif]
+
+let pattern =
+  let open Ppxlib.Ast_pattern in
+  pstr (pstr_value nonrecursive (vb_pattern ^:: nil) ^:: nil)
+
 let extensions =
   let open Ppxlib in
   List.concat
   @@ List.map
        (fun (legacy, exts) ->
-         List.map
-           (fun ext ->
-             Extension.declare ext Extension.Context.structure_item
-               (let open Ast_pattern in
-               pstr
-                 (pstr_value nonrecursive
-                    (value_binding ~pat:(ppat_var __') ~expr:__ ^:: nil)
-                 ^:: nil))
-               (extension ~legacy))
-           exts)
+          List.map
+            (fun ext ->
+               Extension.declare ext Extension.Context.structure_item pattern
+                 (extension ~legacy))
+            exts)
        [true, ["cw_rpc"; "crpc"; "crpc_opt"]; false, ["rpc"]]
 
 let driver_args =
