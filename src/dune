@@ -2,7 +2,7 @@
  (name ppx_rpc)
  (public_name ocsigen-ppx-rpc)
  (preprocess
-  (pps ppxlib.metaquot ppx_optcomp))
+  (pps ppxlib.metaquot))
  (libraries ppxlib)
  (kind ppx_deriver))
 
