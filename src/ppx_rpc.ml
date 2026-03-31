@@ -15,14 +15,14 @@ let unit ?loc ?attrs () =
   Exp.construct ?loc ?attrs (mkloc_opt ?loc (Longident.Lident "()")) None
 
 let tunit ?loc () = Typ.constr (mkloc_opt ?loc (Longident.Lident "unit")) []
-
 let internal = ref false
 
-(** Build a Longident for an Os module path.
-    Without [--rpc-internal], prepends [Os.] to the path. *)
+(** Build a Longident for an Os module path. Without [--rpc-internal], prepends
+    [Os.] to the path. *)
 let os_lid path =
   let lid = Longident.parse path in
-  if !internal then lid
+  if !internal
+  then lid
   else
     let rec prepend = function
       | Longident.Lident s -> Longident.Ldot (Longident.Lident "Os", s)
@@ -173,8 +173,12 @@ let apply args expr = Exp.apply expr args
 let server_function ~loc ~kind ~fun_var expr' =
   let expr =
     match kind with
-    | `Connected -> [%expr fun (myid : [%t os_type ~loc "Types.User.id" []]) -> [%e expr']]
-    | `Any -> [%expr fun (myid_o : [%t os_type ~loc "Types.User.id" []] option) -> [%e expr']]
+    | `Connected ->
+        [%expr fun (myid : [%t os_type ~loc "Types.User.id" []]) -> [%e expr']]
+    | `Any ->
+        [%expr
+          fun (myid_o : [%t os_type ~loc "Types.User.id" []] option) ->
+            [%e expr']]
     | `None -> expr'
   in
   [%stri let%server [%p fun_var] = [%e expr]]
@@ -213,8 +217,14 @@ let server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
   else
     let id_param =
       match kind with
-      | `Connected -> [Nolabel, [%expr [%e os_expr ~loc "Current_user.get_current_userid"] ()]]
-      | `Any -> [Nolabel, [%expr [%e os_expr ~loc "Current_user.Opt.get_current_userid"] ()]]
+      | `Connected ->
+          [ ( Nolabel
+            , [%expr [%e os_expr ~loc "Current_user.get_current_userid"] ()] )
+          ]
+      | `Any ->
+          [ ( Nolabel
+            , [%expr [%e os_expr ~loc "Current_user.Opt.get_current_userid"] ()]
+            ) ]
       | `None -> []
     in
     let uncache expr =
@@ -251,7 +261,8 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
     then expr
     else
       match kind with
-      | `Connected -> [%expr [%e os_expr ~loc "Session.connected_rpc"] [%e expr]]
+      | `Connected ->
+          [%expr [%e os_expr ~loc "Session.connected_rpc"] [%e expr]]
       | `Any -> [%expr [%e os_expr ~loc "Session.Opt.connected_rpc"] [%e expr]]
       | `None -> [%expr [%e os_expr ~loc "Session.connected_wrapper"] [%e expr]]
   in
