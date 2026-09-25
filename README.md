@@ -9,7 +9,7 @@ Installation
 
 _ocsigen-ppx-rpc_ can be installed via [OPAM](https://opam.ocaml.org):
 
-    opam install ppx_deriving
+    opam install ocsigen-ppx-rpc
 
 Buildsystem integration
 -----------------------
