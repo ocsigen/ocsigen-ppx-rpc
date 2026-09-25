@@ -6,8 +6,8 @@
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"impl.f" ([%json : int])
-                (Os_session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"impl.f" ([%json : int])
+                (Os.Session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
                                                                    "-16"]]
       [%%server let f x = f x[@@ocaml.warning "-16-32"]]
     end
@@ -18,9 +18,9 @@
       [%%client
         let f x y z =
           (~%
-             (Eliom_client.server_function ~name:"impl.f"
+             (Eliom.Client.server_function ~name:"impl.f"
                 ([%json : (int * int * int)])
-                (Os_session.connected_wrapper (fun (x, y, z) -> f x y z))))
+                (Os.Session.connected_wrapper (fun (x, y, z) -> f x y z))))
             (x, y, z)[@@ocaml.warning "-16"]]
       [%%server let f x y z = f x y z[@@ocaml.warning "-16-32"]]
     end
@@ -31,8 +31,8 @@
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"impl.f" ([%json : int])
-                (Os_session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"impl.f" ([%json : int])
+                (Os.Session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
                                                                    "-16"]]
       [%%server let f x = f x[@@ocaml.warning "-16-32"]]
     end
@@ -43,8 +43,8 @@
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"impl.f" ([%json : int])
-                (Os_session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"impl.f" ([%json : int])
+                (Os.Session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
                                                                    "-16"]]
       [%%server let f x = f x[@@ocaml.warning "-16-32"]]
     end
@@ -57,9 +57,9 @@
       [%%client
         let nolabel x =
           (~%
-             (Eliom_client.server_function ~name:"labels.nolabel"
+             (Eliom.Client.server_function ~name:"labels.nolabel"
                 ([%json : int])
-                (Os_session.connected_wrapper (fun x -> nolabel x)))) x
+                (Os.Session.connected_wrapper (fun x -> nolabel x)))) x
           [@@ocaml.warning "-16"]]
       [%%server let nolabel x = nolabel x[@@ocaml.warning "-16-32"]]
     end
@@ -70,9 +70,9 @@
       [%%client
         let labelled ~x =
           (~%
-             (Eliom_client.server_function ~name:"labels.labelled"
+             (Eliom.Client.server_function ~name:"labels.labelled"
                 ([%json : int])
-                (Os_session.connected_wrapper (fun x -> labelled ~x)))) x
+                (Os.Session.connected_wrapper (fun x -> labelled ~x)))) x
           [@@ocaml.warning "-16"]]
       [%%server let labelled ~x = labelled ~x[@@ocaml.warning "-16-32"]]
     end
@@ -83,9 +83,9 @@
       [%%client
         let optional ?x =
           (~%
-             (Eliom_client.server_function ~name:"labels.optional"
+             (Eliom.Client.server_function ~name:"labels.optional"
                 ([%json : int])
-                (Os_session.connected_wrapper (fun x -> optional ?x)))) x
+                (Os.Session.connected_wrapper (fun x -> optional ?x)))) x
           [@@ocaml.warning "-16"]]
       [%%server let optional ?x = optional ?x[@@ocaml.warning "-16-32"]]
     end
@@ -96,9 +96,9 @@
       [%%client
         let optional_with_def ?x =
           (~%
-             (Eliom_client.server_function ~name:"labels.optional_with_def"
+             (Eliom.Client.server_function ~name:"labels.optional_with_def"
                 ([%json : int option])
-                (Os_session.connected_wrapper (fun x -> optional_with_def ?x))))
+                (Os.Session.connected_wrapper (fun x -> optional_with_def ?x))))
             x[@@ocaml.warning "-16"]]
       [%%server
         let optional_with_def ?x = optional_with_def ?x[@@ocaml.warning
@@ -111,9 +111,9 @@
       [%%client
         let optional_with_def2 ?x =
           (~%
-             (Eliom_client.server_function ~name:"labels.optional_with_def2"
+             (Eliom.Client.server_function ~name:"labels.optional_with_def2"
                 ([%json : int option])
-                (Os_session.connected_wrapper (fun x -> optional_with_def2 ?x))))
+                (Os.Session.connected_wrapper (fun x -> optional_with_def2 ?x))))
             x[@@ocaml.warning "-16"]]
       [%%server
         let optional_with_def2 ?x = optional_with_def2 ?x[@@ocaml.warning
@@ -123,44 +123,44 @@
   $ run_ppx myid.ml
   include
     struct
-      [%%server let f (myid : Os_types.User.id) (x : int) = ()]
+      [%%server let f (myid : Os.Types.User.id) (x : int) = ()]
       [%%server let _ = ()]
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"myid.f" ([%json : int])
-                (Os_session.connected_rpc (fun myid x -> f myid x)))) x
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : int])
+                (Os.Session.connected_rpc (fun myid x -> f myid x)))) x
           [@@ocaml.warning "-16"]]
       [%%server
-        let f x = f (Os_current_user.get_current_userid ()) x[@@ocaml.warning
+        let f x = f (Os.Current_user.get_current_userid ()) x[@@ocaml.warning
                                                                "-16-32"]]
     end
   include
     struct
-      [%%server let f (myid_o : Os_types.User.id option) (x : int) = ()]
+      [%%server let f (myid_o : Os.Types.User.id option) (x : int) = ()]
       [%%server let _ = ()]
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"myid.f" ([%json : int])
-                (Os_session.Opt.connected_rpc (fun myid_o x -> f myid_o x)))) x
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : int])
+                (Os.Session.Opt.connected_rpc (fun myid_o x -> f myid_o x)))) x
           [@@ocaml.warning "-16"]]
       [%%server
-        let f x = f (Os_current_user.Opt.get_current_userid ()) x[@@ocaml.warning
+        let f x = f (Os.Current_user.Opt.get_current_userid ()) x[@@ocaml.warning
                                                                    "-16-32"]]
     end
   include
     struct
-      [%%server let f (myid : Os_types.User.id) () = ()]
+      [%%server let f (myid : Os.Types.User.id) () = ()]
       [%%server let _ = ()]
       [%%client
         let f () =
           (~%
-             (Eliom_client.server_function ~name:"myid.f" ([%json : unit])
-                (Os_session.connected_rpc (fun myid _ -> f myid ())))) ()
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : unit])
+                (Os.Session.connected_rpc (fun myid _ -> f myid ())))) ()
           [@@ocaml.warning "-16"]]
       [%%server
-        let f () = f (Os_current_user.get_current_userid ()) ()[@@ocaml.warning
+        let f () = f (Os.Current_user.get_current_userid ()) ()[@@ocaml.warning
                                                                  "-16-32"]]
     end
 
@@ -172,8 +172,8 @@
       [%%client
         let f x () =
           (~%
-             (Eliom_client.server_function ~name:"unit.f" ([%json : int])
-                (Os_session.connected_wrapper (fun x -> f x ())))) x[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"unit.f" ([%json : int])
+                (Os.Session.connected_wrapper (fun x -> f x ())))) x[@@ocaml.warning
                                                                       "-16"]]
       [%%server let f x () = f x ()[@@ocaml.warning "-16-32"]]
     end
@@ -184,8 +184,8 @@
       [%%client
         let f () =
           (~%
-             (Eliom_client.server_function ~name:"unit.f" ([%json : unit])
-                (Os_session.connected_wrapper (fun _ -> f ())))) ()[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"unit.f" ([%json : unit])
+                (Os.Session.connected_wrapper (fun _ -> f ())))) ()[@@ocaml.warning
                                                                      "-16"]]
       [%%server let f () = f ()[@@ocaml.warning "-16-32"]]
     end
@@ -198,8 +198,55 @@
       [%%client
         let f x =
           (~%
-             (Eliom_client.server_function ~name:"newtype.f" ([%json : int])
-                (Os_session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
+             (Eliom.Client.server_function ~name:"newtype.f" ([%json : int])
+                (Os.Session.connected_wrapper (fun x -> f x)))) x[@@ocaml.warning
                                                                    "-16"]]
       [%%server let f x = f x[@@ocaml.warning "-16-32"]]
+    end
+
+The --rpc-internal flag emits the short module names used when compiling
+ocsigen-start itself (its modules refer to each other without the Os prefix):
+
+  $ run_ppx --rpc-internal myid.ml
+  include
+    struct
+      [%%server let f (myid : Types.User.id) (x : int) = ()]
+      [%%server let _ = ()]
+      [%%client
+        let f x =
+          (~%
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : int])
+                (Session.connected_rpc (fun myid x -> f myid x)))) x[@@ocaml.warning
+                                                                      "-16"]]
+      [%%server
+        let f x = f (Current_user.get_current_userid ()) x[@@ocaml.warning
+                                                            "-16-32"]]
+    end
+  include
+    struct
+      [%%server let f (myid_o : Types.User.id option) (x : int) = ()]
+      [%%server let _ = ()]
+      [%%client
+        let f x =
+          (~%
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : int])
+                (Session.Opt.connected_rpc (fun myid_o x -> f myid_o x)))) x
+          [@@ocaml.warning "-16"]]
+      [%%server
+        let f x = f (Current_user.Opt.get_current_userid ()) x[@@ocaml.warning
+                                                                "-16-32"]]
+    end
+  include
+    struct
+      [%%server let f (myid : Types.User.id) () = ()]
+      [%%server let _ = ()]
+      [%%client
+        let f () =
+          (~%
+             (Eliom.Client.server_function ~name:"myid.f" ([%json : unit])
+                (Session.connected_rpc (fun myid _ -> f myid ())))) ()[@@ocaml.warning
+                                                                      "-16"]]
+      [%%server
+        let f () = f (Current_user.get_current_userid ()) ()[@@ocaml.warning
+                                                              "-16-32"]]
     end
