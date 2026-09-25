@@ -1,0 +1,18 @@
+## 2.0 (unreleased)
+
+Breaking changes:
+* The emitted code uses the module names introduced by Eliom 13 and
+  Ocsigen Start 9: `Eliom.Client.server_function`, `Os.Session`,
+  `Os.Current_user`, `Os.Types`. This version therefore requires
+  Eliom >= 13 in all modes, and Ocsigen Start >= 9 in the default mode
+  (`--rpc-raw` needs only Eliom). Use ocsigen-ppx-rpc 1.x with older
+  versions.
+
+New features:
+* New `--rpc-internal` flag, used when compiling Ocsigen Start itself:
+  the wrappers are emitted with the short module names its modules use
+  for each other.
+
+## 1.1
+
+See the git history for changes up to this release.

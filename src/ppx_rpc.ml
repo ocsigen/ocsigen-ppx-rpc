@@ -15,6 +15,24 @@ let unit ?loc ?attrs () =
   Exp.construct ?loc ?attrs (mkloc_opt ?loc (Longident.Lident "()")) None
 
 let tunit ?loc () = Typ.constr (mkloc_opt ?loc (Longident.Lident "unit")) []
+let internal = ref false
+
+(** Build a Longident for an Os module path. Without [--rpc-internal], prepends
+    [Os.] to the path. *)
+let os_lid path =
+  let lid = Longident.parse path in
+  if !internal
+  then lid
+  else
+    let rec prepend = function
+      | Longident.Lident s -> Longident.Ldot (Longident.Lident "Os", s)
+      | Longident.Ldot (p, s) -> Longident.Ldot (prepend p, s)
+      | Longident.Lapply (p1, p2) -> Longident.Lapply (prepend p1, p2)
+    in
+    prepend lid
+
+let os_expr ~loc path = Exp.ident ~loc {loc; txt = os_lid path}
+let os_type ~loc path args = Typ.constr ~loc {loc; txt = os_lid path} args
 
 type error =
   | No_parameter
@@ -155,8 +173,12 @@ let apply args expr = Exp.apply expr args
 let server_function ~loc ~kind ~fun_var expr' =
   let expr =
     match kind with
-    | `Connected -> [%expr fun (myid : Os_types.User.id) -> [%e expr']]
-    | `Any -> [%expr fun (myid_o : Os_types.User.id option) -> [%e expr']]
+    | `Connected ->
+        [%expr fun (myid : [%t os_type ~loc "Types.User.id" []]) -> [%e expr']]
+    | `Any ->
+        [%expr
+          fun (myid_o : [%t os_type ~loc "Types.User.id" []] option) ->
+            [%e expr']]
     | `None -> expr'
   in
   [%stri let%server [%p fun_var] = [%e expr]]
@@ -195,8 +217,14 @@ let server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
   else
     let id_param =
       match kind with
-      | `Connected -> [Nolabel, [%expr Os_current_user.get_current_userid ()]]
-      | `Any -> [Nolabel, [%expr Os_current_user.Opt.get_current_userid ()]]
+      | `Connected ->
+          [ ( Nolabel
+            , [%expr [%e os_expr ~loc "Current_user.get_current_userid"] ()] )
+          ]
+      | `Any ->
+          [ ( Nolabel
+            , [%expr [%e os_expr ~loc "Current_user.Opt.get_current_userid"] ()]
+            ) ]
       | `None -> []
     in
     let uncache expr =
@@ -233,9 +261,10 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
     then expr
     else
       match kind with
-      | `Connected -> [%expr Os_session.connected_rpc [%e expr]]
-      | `Any -> [%expr Os_session.Opt.connected_rpc [%e expr]]
-      | `None -> [%expr Os_session.connected_wrapper [%e expr]]
+      | `Connected ->
+          [%expr [%e os_expr ~loc "Session.connected_rpc"] [%e expr]]
+      | `Any -> [%expr [%e os_expr ~loc "Session.Opt.connected_rpc"] [%e expr]]
+      | `None -> [%expr [%e os_expr ~loc "Session.connected_wrapper"] [%e expr]]
   in
   let expr =
     fun_name |> ident
@@ -244,7 +273,7 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
   in
   let expr =
     [%expr
-      ~%(Eliom_client.server_function
+      ~%(Eliom.Client.server_function
            ~name:[%e str (rpc_name fun_name)]
            [%json: [%t typ_tuple (fst params)]] [%e expr])
         [%e expr_tuple (fst params)]]
@@ -352,7 +381,10 @@ let driver_args =
     , " Do not insert any ocsigen-start session wrapper." )
   ; ( "--rpc-cache"
     , Arg.Unit (fun () -> cache := true)
-    , " Insert caching directives (for internal use at Be Sport)." ) ]
+    , " Insert caching directives (for internal use at Be Sport)." )
+  ; ( "--rpc-internal"
+    , Arg.Unit (fun () -> internal := true)
+    , " Use short module names (for compiling ocsigen-start itself)." ) ]
 
 let () =
   List.iter

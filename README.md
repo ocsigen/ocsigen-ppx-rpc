@@ -9,7 +9,7 @@ Installation
 
 _ocsigen-ppx-rpc_ can be installed via [OPAM](https://opam.ocaml.org):
 
-    opam install ppx_deriving
+    opam install ocsigen-ppx-rpc
 
 Buildsystem integration
 -----------------------
@@ -48,7 +48,7 @@ let%rpc f ?(x1 : t1) ... ~(xn : tn) () = e
 ```
 
 By default, this PPX is meant to be used together with Ocsigen
-Start. So, it automatically inserts `Os_session` wrappers. If you want
+Start. So, it automatically inserts `Os.Session` wrappers. If you want
 to use it with Eliom but without Ocsigen Start, you can use the option
 `--rpc-raw`
 
@@ -56,3 +56,12 @@ to use it with Eliom but without Ocsigen Start, you can use the option
       (libraries whatever)
       (preprocess (pps ocsigen-ppx-rpc --rpc-raw))
       (name blah))
+
+The option `--rpc-internal` is used when compiling Ocsigen Start
+itself: the wrappers are emitted with the short module names its
+modules use for each other (`Session`, `Current_user`, ...).
+
+Version 2.0 emits the module names introduced by Eliom 13 and Ocsigen
+Start 9 (`Eliom.Client`, `Os.Session`, ...), so it requires Eliom >= 13
+in all modes, and Ocsigen Start >= 9 in the default mode. Use
+ocsigen-ppx-rpc 1.x with older versions.
