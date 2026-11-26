@@ -115,7 +115,8 @@ let process_param label def pat =
     match def with
     (* [?(label = (def : ty))]. *)
     | Some [%expr ([%e? _] : [%t? ty])] -> param pat ty
-    | _ -> print_error ~loc:pat.ppat_loc Missing_parameter_type)
+    | _ -> print_error ~loc:pat.ppat_loc Missing_parameter_type
+  )
 
 let rec collect_params l expr =
   match expr.pexp_desc with
@@ -141,8 +142,11 @@ let rec collect_params l expr =
                 (l, true), typ
             | _ -> (
               match process_param label def pat with
-              | `Param (label, name, ty) -> loop ((label, name, ty) :: l) rest))
-          | Pparam_newtype _ -> loop l rest)
+              | `Param (label, name, ty) -> loop ((label, name, ty) :: l) rest
+            )
+          )
+          | Pparam_newtype _ -> loop l rest
+        )
       in
       loop l params
   | Pexp_constraint (e, _) ->
@@ -157,8 +161,7 @@ let mk_function_param ?(loc = Location.none) ?(label = Nolabel) ?defexpr pat =
 let make_fun loc (params, has_unit_arg) body =
   let params =
     List.fold_right
-      (fun (label, ident, _) acc ->
-         mk_function_param ~label (pvar ident) :: acc)
+      (fun (label, ident, _) acc -> mk_function_param ~label (pvar ident) :: acc)
       params
       (if has_unit_arg then [mk_function_param [%pat? ()]] else [])
   in
@@ -224,7 +227,8 @@ let server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
       | `Any ->
           [ ( Nolabel
             , [%expr [%e os_expr ~loc "Current_user.Opt.get_current_userid"] ()]
-            ) ]
+            )
+          ]
       | `None -> []
     in
     let uncache expr =
@@ -275,12 +279,13 @@ let client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params =
     [%expr
       ~%(Eliom.Client.server_function
            ~name:[%e str (rpc_name fun_name)]
-           [%json: [%t typ_tuple (fst params)]] [%e expr])
+           [%json: [%t typ_tuple (fst params)]] [%e expr]
+        )
         [%e expr_tuple (fst params)]]
   in
   [%stri
-  let%client [%p fun_var] = [%e make_fun loc params expr]
-  [@@ocaml.warning "-16"]]
+    let%client [%p fun_var] = [%e make_fun loc params expr]
+    [@@ocaml.warning "-16"]]
 
 let raw = ref false
 let cache = ref false
@@ -296,12 +301,15 @@ let rec check_myid expr =
         Pexp_function
           ( {pparam_desc = Pparam_val (Nolabel, None, pat); _} :: rest
           , constraint_
-          , (Pfunction_body body_expr as body) ) } -> (
+          , (Pfunction_body body_expr as body)
+          )
+    } -> (
     match is_special_argument pat, rest with
     | Some sp, [] -> sp, body_expr
     | Some sp, rest ->
         sp, {expr with pexp_desc = Pexp_function (rest, constraint_, body)}
-    | None, _ -> `None, expr)
+    | None, _ -> `None, expr
+  )
   | [%expr ([%e? e] : [%t? t])] ->
       let kind, new_e = check_myid e in
       if kind <> `None
@@ -319,17 +327,20 @@ let extension_impl ~legacy ~loc ~path:_ ~return_typ_hint fun_name expr =
   let return_typ =
     match return_typ with Some _ -> return_typ | None -> return_typ_hint
   in
-  (match params with
+  ( match params with
   | [], false -> print_error ~loc No_parameter
   | l, _ ->
       ignore
         (List.fold_left
            (fun acc (_, nm, _) ->
-              if List.mem nm acc then print_error ~loc (Duplicated_parameter nm);
-              if nm = "myid" || nm = "myid_o"
-              then print_error ~loc (Reserved_parameter nm);
-              nm :: acc)
-           [] l));
+             if List.mem nm acc then print_error ~loc (Duplicated_parameter nm);
+             if nm = "myid" || nm = "myid_o"
+             then print_error ~loc (Reserved_parameter nm);
+             nm :: acc
+           )
+           [] l
+        )
+  );
   if cache && return_typ = None then print_error ~loc No_return_type;
   let cache = if cache then return_typ else None in
   Str.include_ ~loc
@@ -338,7 +349,10 @@ let extension_impl ~legacy ~loc ~path:_ ~return_typ_hint fun_name expr =
           [ server_function ~loc ~kind ~fun_var expr'
           ; server_cacher ~loc ~kind ~cache ~fun_name ~fun_var ~params
           ; client_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params
-          ; server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params ]))
+          ; server_wrapper ~loc ~kind ~raw ~cache ~fun_name ~fun_var ~params
+          ]
+       )
+    )
 
 let rec return_type_of_arrow ty =
   match ty.ptyp_desc with
@@ -368,11 +382,13 @@ let extensions =
   List.concat
   @@ List.map
        (fun (legacy, exts) ->
-          List.map
-            (fun ext ->
-               Extension.declare ext Extension.Context.structure_item pattern
-                 (extension ~legacy))
-            exts)
+         List.map
+           (fun ext ->
+             Extension.declare ext Extension.Context.structure_item pattern
+               (extension ~legacy)
+           )
+           exts
+       )
        [true, ["cw_rpc"; "crpc"; "crpc_opt"]; false, ["rpc"]]
 
 let driver_args =
@@ -384,7 +400,8 @@ let driver_args =
     , " Insert caching directives (for internal use at Be Sport)." )
   ; ( "--rpc-internal"
     , Arg.Unit (fun () -> internal := true)
-    , " Use short module names (for compiling ocsigen-start itself)." ) ]
+    , " Use short module names (for compiling ocsigen-start itself)." )
+  ]
 
 let () =
   List.iter
